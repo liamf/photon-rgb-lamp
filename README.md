@@ -91,7 +91,7 @@ When the Photon is in listening mode, the onboard LED will flash blue, and the m
 
 When the Photon is in listening mode, it will also create a local access point, with a name like Photon-JX23
 
-If you connect a computer or phone to this AP, and enter http://192.160.0.1 into a browser on the computer or phone, a setup page will be presented which you can use to scan for and enter credentials for a WiFi network.
+If you connect a computer or phone to this AP, and enter http://192.168.0.1 into a browser on the computer or phone, a setup page will be presented which you can use to scan for and enter credentials for a WiFi network.
 When you have entered the credentials, the Photon will attempt to connect to this network. This page also gives you the DeviceID for this Photon, which you'll to claim the device and control it.
 
 If it succeeds in connecting, the lamp will pulse cyan briefly, before switching off and awaiting commands.
