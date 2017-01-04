@@ -1,6 +1,6 @@
 # photon-rgb-lamp
 Code for the Particle Photon, to control an RGB lamp
-Assumes that teh RGB lamp is PWM controlled
+Assumes that the RGB lamp is PWM controlled
 
 You can power an arbitrarily powerful RGB LED or LED array like this, with the correct circuit design.
 
@@ -8,15 +8,15 @@ Exposes a number of APIs to the Particle cloud to allow you to control your lamp
 
 ##REST endpoints:  
 
-**/v1/devices/<deviceid>/colour**  
-**/v1/devices/<deviceid>/pulse**  
-**/v1/devices/<deviceid>/admin**  
+**/v1/devices/_deviceid_/colour**  
+**/v1/devices/_deviceid_/pulse**  
+**/v1/devices/_deviceid_/admin**  
 
 The Particle REST API accepts an optional single argument, assumed a string of up to 63 characters max, for each REST endpoint.
 There follows a short description of each. 
 
 Each of these in turn:  
-###/v1/devices/<deviceid>/colour  
+###/v1/devices/_deviceid_/colour  
 
 Sets the colour of the lamp.  
 Either the arg "SET" followed by the word RED, GREEN or BLUE with an integer number
@@ -53,7 +53,7 @@ PERIOD x sets the pulse period time, floating point number allowed (allowed rang
 e.g. PERIOD 0.5  
      PERIOD 10  
 	 
-###/v1/devices/<deviceid>/admin
+###/v1/devices/_deviceid_/admin
 
 Contains a number of admin commands.
 
