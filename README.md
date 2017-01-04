@@ -38,7 +38,7 @@ e.g. RAMP 200 0 1000 sets the RGB colour to a colour which represents the 20% of
 **RAMP val vMin vMax**  
 **SPECTRUM val vMin vMax**  
 
-###/v1/devices/<deviceid>/pulse
+###/v1/devices/_deviceid_/pulse
 "Pulses" the currently set lamp colour from on->off and back, with a default period of 5 seconds
 
 arg to pass:  
