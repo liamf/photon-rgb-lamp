@@ -1,4 +1,3 @@
-
 /*
  * This app controls the "ambient orb" RGB light clone and exposes a few simple control points to the particle cloud
  *
@@ -55,6 +54,7 @@ int SetLampColour(String arg1, String arg2, String arg3);
 int SetLampColourFromRamp(String arg1, String arg2, String arg3);
 int SetLampColourFromSpectrum(String arg1, String arg2, String arg3);
 
+
 // 
 class Light
 {
@@ -63,6 +63,7 @@ class Light
         Light( int rPin, int gPin, int bPin);
         
         COLOUR setColour( uint32_t red, uint32_t green, uint32_t blue);
+        COLOUR restoreColour(void);
         COLOUR set8BitColour( uint8_t red, uint8_t green, uint8_t blue);
 
         COLOUR getColour(void);
@@ -81,8 +82,9 @@ class Light
         void setBrightnessLevel(int level);
         int  getBrightnessLevel(void);
         
-         void   rapidColourRamp(void);
-         
+        void   rapidColourRamp(void);
+        
+        void   setRestoreColour(void); 
         COLOUR colourRampFromRange(float value, float minValue, float maxValue);
         COLOUR visibleColourFromRange(float value, float minValue, float maxValue);
         
@@ -95,6 +97,7 @@ class Light
         bool lampControlIsEnabled;
 
         COLOUR currentColour;
+        COLOUR savedColour;
 };
 
 #endif

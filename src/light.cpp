@@ -40,10 +40,15 @@ int greenLevel;
 int blueLevel;
 int bitsPerPixel;
 
+
 Light::Light(int rPin, int gPin, int bPin ) : redPin(rPin), greenPin(gPin), bluePin(bPin), brightnessLevel(255)
 {
     lampControlIsEnabled = false;
     bitsPerPixel = 8;
+    
+    redLevel = greenLevel = blueLevel = 0;
+    
+    savedColour.r = savedColour.g = savedColour.b = 0;
 };
 
 
@@ -86,6 +91,11 @@ COLOUR Light::setColour(uint32_t red, uint32_t green, uint32_t blue)
 COLOUR Light::getColour(void)
 {
     return currentColour;    
+}
+
+COLOUR Light::restoreColour(void)
+{
+    return setColour(savedColour.r, savedColour.g, savedColour.b);    
 }
 
 void Light::setRed(uint32_t red)
@@ -310,10 +320,16 @@ void Light::rapidColourRamp(void)
     }
 }
 
+void Light::setRestoreColour(void)
+{
+    savedColour = currentColour;    
+}
+
 // Exposed Lamp control command
 int LampControl(String command)
 {
     int numArgs;
+    int retVal = -1;
     
     command.trim();
     command.toUpperCase();
@@ -333,20 +349,33 @@ int LampControl(String command)
     String action = lampCommand[0];
     
     // Now just hand off to the handlers
+    // However we have to remembed the colour, so that we can reset it
+    
     if( action == "SET")
     {
-        return SetLampColour(lampCommand[1], lampCommand[2], lampCommand[3]);
+        retVal = SetLampColour(lampCommand[1], lampCommand[2], lampCommand[3]);
+        lamp.setRestoreColour();
     }
     else if (action == "RAMP")
     {
-        return SetLampColourFromRamp(lampCommand[1], lampCommand[2], lampCommand[3]);
+        retVal = SetLampColourFromRamp(lampCommand[1], lampCommand[2], lampCommand[3]);
+        lamp.setRestoreColour();
     }
     else if (action == "SPECTRUM")
     {
-        return SetLampColourFromSpectrum( lampCommand[1], lampCommand[2], lampCommand[3] );
+        retVal = SetLampColourFromSpectrum( lampCommand[1], lampCommand[2], lampCommand[3] );
+        lamp.setRestoreColour();
+    }
+    else
+    {
+        if (debugEnabled)
+        {
+            Serial.printf("That is not a valid command. Ignored");
+        }
     }
 
-    return -1;
+
+    return retVal;
 }
 
 int SetLampColour(String arg1, String arg2, String arg3)
@@ -402,6 +431,7 @@ int SetLampColourFromRamp(String arg1, String arg2, String arg3)
     return 0;
     
 }
+
 
 int SetLampColourFromSpectrum(String arg1, String arg2, String arg3)
 {

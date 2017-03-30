@@ -70,6 +70,7 @@ Light lamp(redLED, greenLED, blueLED);
 LightPulser lightPulse;
 
 Timer fader(50, &LightPulser::onTimeout, lightPulse);
+Timer rebootKick(1000, rebootTimeout, true);
 
 // Register our variables and functions and kick off cloud connectivity
 void setup() {
@@ -135,8 +136,10 @@ void loop() {
         
         lamp.setExternalLampControl(true);
         lamp.rapidColourRamp();
-        delay(50);
-        lamp.setColour(0,0,0);
+        delay(1000);
+        
+        // Put back the colour which we had set before losing connectivity, if we had one (or off, if we did not)
+        lamp.restoreColour();
     }
     else 
     {
@@ -213,5 +216,11 @@ void ledChangeHandler(uint8_t r, uint8_t g, uint8_t b)
     }
 }
 
+
+// Reboots the lamp
+void rebootTimeout(void)
+{
+    System.reset();
+}
 
 

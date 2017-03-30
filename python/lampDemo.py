@@ -235,6 +235,11 @@ lampDemo: This script shows basic playing with the lamp
         help='Disable manual control of the lamp colour (debug operation)')
     parser.set_defaults(ledcontrol=True)
 
+    parser.add_argument(
+        '--raw',
+        nargs='+',
+        help='Enter a admin command to send to the lamp')
+    
     # Set the colour of the lamp (RGB)
     parser.add_argument(
         '--colour', '-c',
@@ -336,6 +341,10 @@ def main(argv):
 
     
     
+    # Handle a raw admin command: just send verbatim to the lamp
+    if parsed_args.raw is not None:
+        lamp.admin(' '.join(parsed_args.raw))
+        
     # Reboot if we asked for this
     if parsed_args.reset:
         lamp.admin("reboot")
