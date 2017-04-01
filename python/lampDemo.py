@@ -5,7 +5,9 @@
 #
 # Sample script to play with the lamp
 #
-# Not all firmware commands supported in this script yet
+# Not all firmware commands supported in this script, this is just an indication of how
+# to interact with the lamp using Python and the spyrk library, however you can use the
+# --raw command to issue any command to the lamp
 #
 #################################################################################
 
@@ -35,6 +37,32 @@ def isANumber(s):
         
     return False
     
+# Shortcut way to handle any command, by entering it directly
+# e.g. lampDemo.py -a <key> -d <dev_name> --raw COLOUR SET 20 30 40    is equivalent to
+#      lampDemp.py -a <key> -d <dev_name> -c 20 30 40
+#
+# Use the --raw command to issue commands which don't have shortcut commands implemented in the python wrapper yet
+#
+def runRawCommand(lamp, rawCommand):
+
+    # first command word determines what the raw command is
+    # we understand "colour", "admin", "pulse"
+    # Pop it off the list, leaving the rest of the command in rawCommand
+    
+    cmd = rawCommand.pop(0).upper()
+    cmdArgs = ' '.join(rawCommand);
+    
+    if cmd == "COLOUR":
+        lamp.colour(cmdArgs)
+    elif cmd == "PULSE":
+        lamp.pulse(cmdArgs)
+    elif cmd == "ADMIN":
+        lamp.admin(cmdArgs)
+    else:
+        print "Didn't understand raw command {com} {args}".format(com=cmd, args=cmdArgs)
+        return
+        
+    return
     
 def runPastelColourAlgorithm(lamp):
     # Setting a colour is fairly slow (via the Spark cloud)
@@ -198,8 +226,7 @@ def runDimWalkColourAlgorithm(lamp):
 # Command line arg handler for this script
 def handleArguments():
     """
-lampDemo: This script shows basic playing with the lamp
-    
+    lampDemo: This script shows basic playing with the lamp   
     """
     parser = ArgumentParser(description='Simple lamp control script')
     
@@ -238,7 +265,7 @@ lampDemo: This script shows basic playing with the lamp
     parser.add_argument(
         '--raw',
         nargs='+',
-        help='Enter a admin command to send to the lamp')
+        help='Sends a command verbatim to the lamp, if recognised\ne.g --raw COLOUR RAMP 35 0 100')
     
     # Set the colour of the lamp (RGB)
     parser.add_argument(
@@ -278,7 +305,7 @@ lampDemo: This script shows basic playing with the lamp
     
 def main(argv):
     """
-    Reads in something or other, does something with it, and generates an output file
+    Simple command line interface to a photon-controlled RGB lamp
     """
 
     # Parse command line
@@ -301,7 +328,8 @@ def main(argv):
         print "Lamp {dev} found in this account, but it is not online so we can't control it". format(dev=parsed_args.device)
         exit()
         
-    # When we get to here, there is a lamp, we found it, and it's online
+    # When we get to here, there is a lamp, we found it, and it's online, so we can control it
+    # We don't assume that you passed just a single command so we don't exit after finding one
     if parsed_args.random:
         runRandomColourAlgorithm(lamp)
     
@@ -314,7 +342,7 @@ def main(argv):
     if parsed_args.walk:
         runWalkColourAlgorithm(lamp)
 
-    # Pulse the lamp 
+    # Set the lamp into pulse mode (or turn pulse off) 
     if parsed_args.pulse:
         if isANumber(parsed_args.pulse):
             lamp.pulse("PERIOD {p}".format(p=parsed_args.pulse))
@@ -336,21 +364,17 @@ def main(argv):
             lamp.colour("SET {r} {g} {b}".format(r=parsed_args.colour[0], 
                                                  g=parsed_args.colour[1], 
                                                  b=parsed_args.colour[2]))
-        
-   
-
-    
-    
+           
     # Handle a raw admin command: just send verbatim to the lamp
+    # We should really make a wrapper command for 
     if parsed_args.raw is not None:
-        lamp.admin(' '.join(parsed_args.raw))
+        runRawCommand(lamp, parsed_args.raw)
         
     # Reboot if we asked for this
     if parsed_args.reset:
         lamp.admin("reboot")
 
     return 0
-
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))

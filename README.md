@@ -1,6 +1,5 @@
 # photon-rgb-lamp
-Code for the Particle Photon, to control an RGB lamp
-Assumes that the RGB lamp is PWM controlled
+Code for the Particle Photon, to control an RGB lamp - assumes that the RGB lamp is PWM controlled via particular device ports, see the code for details.
 
 You can power an arbitrarily powerful RGB LED or LED array like this, with the correct circuit design.
 
@@ -11,6 +10,8 @@ Exposes a number of APIs to the Particle cloud to allow you to control your lamp
 **/v1/devices/_deviceid_/colour**  
 **/v1/devices/_deviceid_/pulse**  
 **/v1/devices/_deviceid_/admin**  
+
+where _deviceid_ is the particular device identifier for your particular device. See "Getting Online" later to see how to retrieve your device ID.
 
 The Particle REST API accepts an optional single argument, assumed a string of up to 63 characters max, for each REST endpoint.
 There follows a short description of each. 
@@ -32,11 +33,13 @@ arg to pass:
 **SET BLUE  x**  
 **SET r g b**  
 
-These two functions set the RGB colour to a point on either of two built-in colour ranges, given a value, and a min/max range.
-e.g. RAMP 200 0 1000 sets the RGB colour to a colour which represents the 20% of the way between 0 and 1000
+An alternative to setting the RGB colour directly, is to use one of the built-in colour ranges to choose the colour:
 
 **RAMP val vMin vMax**  
 **SPECTRUM val vMin vMax**  
+
+These two functions set the RGB colour to a point on either of two built-in colour ranges, given a value, and a min/max range.
+e.g. RAMP 200 0 1000 sets the RGB colour to a colour which represents the 20% of the way between 0 and 1000
 
 ### /v1/devices/_deviceid_/pulse
 "Pulses" the currently set lamp colour from on->off and back, with a default period of 5 seconds
@@ -69,8 +72,7 @@ arg to pass:
 **LIST**  prints out to the USB serial port (if it is enabled, see later) the list of networks stored currently  
 **SERIAL** ON or OFF turns ON or OFF the USB serial port  
 **DEBUG** ON of OFF turns on or off some debug tracing to the USB serial port, if this port is enabled  
-**LED** AUTO forces the lamp to follow the colour of the Photon on-board LED. This is useful if you are going to flash the Photon with new firmware  
-    and want to see the progress. LED MANUAL returns to normal mode, where the lamp can be controlled via the REST API.  
+**LED** AUTO forces the lamp to follow the colour of the Photon on-board LED. This is useful if you are going to flash the Photon with new firmware and want to see the progress. LED MANUAL returns to normal mode, where the lamp can be controlled via the REST API.  
   
 The **ADD** command	allows you to send the core WiFi credentials via API. This is useful to setup the Photon for a different network to the 
 one it is connected to, or a network which is not currently available or is at a different location.  
@@ -92,7 +94,7 @@ When the Photon is in listening mode, the onboard LED will flash blue, and the m
 When the Photon is in listening mode, it will also create a local access point, with a name like Photon-JX23
 
 If you connect a computer or phone to this AP, and enter http://192.168.0.1 into a browser on the computer or phone, a setup page will be presented which you can use to scan for and enter credentials for a WiFi network.
-When you have entered the credentials, the Photon will attempt to connect to this network. This page also gives you the DeviceID for this Photon, which you'll to claim the device and control it.
+When you have entered the credentials, the Photon will attempt to connect to this network. This page also gives you the DeviceID for this Photon, which you'll need to claim the device and control it. When you claim the device, you give it a name to use for device control. 
 
-If it succeeds in connecting, the lamp will pulse cyan briefly, before switching off and awaiting commands.
+If it succeeds in connecting, the lamp will pulse cyan briefly, and quickly cycle through some colours, before switching off and awaiting commands.
        
