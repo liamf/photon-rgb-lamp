@@ -6,7 +6,7 @@ You can power an arbitrarily powerful RGB LED or LED array like this, with the c
 
 Exposes a number of APIs to the Particle cloud to allow you to control your lamp.
 
-##REST endpoints:  
+## REST endpoints:  
 
 **/v1/devices/_deviceid_/colour**  
 **/v1/devices/_deviceid_/pulse**  
@@ -16,7 +16,7 @@ The Particle REST API accepts an optional single argument, assumed a string of u
 There follows a short description of each. 
 
 Each of these in turn:  
-###/v1/devices/_deviceid_/colour  
+### /v1/devices/_deviceid_/colour  
 
 Sets the colour of the lamp.  
 Either the arg "SET" followed by the word RED, GREEN or BLUE with an integer number
@@ -38,7 +38,7 @@ e.g. RAMP 200 0 1000 sets the RGB colour to a colour which represents the 20% of
 **RAMP val vMin vMax**  
 **SPECTRUM val vMin vMax**  
 
-###/v1/devices/_deviceid_/pulse
+### /v1/devices/_deviceid_/pulse
 "Pulses" the currently set lamp colour from on->off and back, with a default period of 5 seconds
 
 arg to pass:  
@@ -53,7 +53,7 @@ arg to pass:
 e.g. PERIOD 0.5  
      PERIOD 10  
 	 
-###/v1/devices/_deviceid_/admin
+### /v1/devices/_deviceid_/admin
 
 Contains a number of admin commands.
 
