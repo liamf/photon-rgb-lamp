@@ -5,6 +5,8 @@ You can power an arbitrarily powerful RGB LED or LED array like this, with the c
 
 Exposes a number of APIs to the Particle cloud to allow you to control your lamp.
 
+(NB: this readme might not be 100% up to date with the latest source, so read that too ...)
+
 ## REST endpoints:  
 
 **/v1/devices/_deviceid_/colour**  
