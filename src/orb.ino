@@ -27,200 +27,470 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
  
- // This #include statement was automatically added by the Particle IDE.
-// Local libraries
 #include "light.h"
-#include "wifi-setup.h"
 #include "admin.h"
-#include "pulse.h"
+#include "math.h"
+#include "application.h"
+
+// Easy access for the current colour values. Perhaps these can be classs variables and exposed to the Cloud?
+
+int redLevel;
+int greenLevel;
+int blueLevel;
+int bitsPerPixel;
+int powerLevel;
 
 
-// Number of seconds to show the pusling status LED before turning control over to the 
-#define CONNECTED_INDICATION_TIME   10
-
-// Number of seconds that the Photon stays in LISTENING or CONNECTING state, while attempting to connect (or allow the core to connect)
-// Has to be reasonable long to allow you to access and enter the WiFi credentials
-#define RECOVERY_CYCLE_PERIOD 120
-
-// Enable threading for the application
-// This allows us to do things like monitor connection status
-SYSTEM_THREAD(ENABLED);
-
-// This overrides the default system mode
-// Required to make the lamp colour mirror the on-board LED while connecting, otherwise
-// the setup() and loop() functions do not run until the board is connected to the cloud
-SYSTEM_MODE(SEMI_AUTOMATIC);
-
-// The PWM pins which control Red, Green and Blue colours
-// Note: this works on Photon only, not on earlier Spark cores
-// Suitable Spark choices are A0, A1, A4
-// This sketch won't build for a Spark Core anyway: older CC3000 modules had no AP mode, so the WiFi setup via SoftAP won't work
-
-const int redLED = D0;
-const int greenLED = D1;
-const int blueLED = D2;
-
-// Track our connection status
-Connection cloudConnection;
-
-// bool isConnectedToCloud = false;
-
-// Create our lamp control class
-Light lamp(redLED, greenLED, blueLED);
-LightPulser lightPulse;
-
-Timer fader(50, &LightPulser::onTimeout, lightPulse);
-Timer rebootKick(1000, rebootTimeout, true);
-
-// Register our variables and functions and kick off cloud connectivity
-void setup() {
-
-
-    // Setup the PIN modes and the colour resolution
-    lamp.setColourResolution(12);
+Light::Light(int rPin, int gPin, int bPin ) : redPin(rPin), greenPin(gPin), bluePin(bPin), brightnessLevel(100)
+{
+    lampControlIsEnabled = false;
+    bitsPerPixel = 8;
     
-    // Turn off lamp control (lamp colour mirrors onboard LED)
-    lamp.setExternalLampControl(false);
+    redLevel = greenLevel = blueLevel = 0;
+    powerLevel = 100;
+    
+    savedColour.r = savedColour.g = savedColour.b = 0;
+};
 
-    // Now register the handler to allow the lamp colour mirror the onboard LED
-    RGB.onChange(ledChangeHandler);
+
+// Sets the colour resolution of the PWM pins (and set them to be outputs, just in case)
+void Light::setColourResolution(int bits)
+{
+    pinMode(redPin, OUTPUT);
+    pinMode(greenPin, OUTPUT);
+    pinMode(bluePin, OUTPUT);
     
-    // Register the lamp colour variables. Just R,G,B levels, and bits per pixel
-    Particle.variable("red", redLevel);
-    Particle.variable("green", greenLevel);
-    Particle.variable("blue", blueLevel);
-    Particle.variable("bpp", bitsPerPixel);
+    analogWriteResolution(redPin, bits);    
+    analogWriteResolution(greenPin, bits);  
+    analogWriteResolution(bluePin, bits);   
     
-    // These are debug functions for now
-    Particle.function("colour",LampControl);
-    Particle.function("pulse", PulseLamp);
-    
-    // Admin comments
-    Particle.function("admin", AdminHandler);
-    
-    // Register the WiFi configuration pages
-    STARTUP(softap_set_application_page_handler(setupWiFiPage, nullptr));
-    
-    // Set the initial cloud recovery state to CONNECTED (we know it isn't CONNECTED yet, but it will get reset momentarily by the normal recovery process)
-    cloudConnection.setCloudRecoveryState(CONNECTED);
-    
-    // Setup the light "pulser" timeer callback
-    fader.start();
-    
-    // Initiate the connection to the Particle core
-    Particle.connect();
-    
+    bitsPerPixel = bits;
 }
 
-// Status monitoring loop
-void loop() {
-    bool currentConnectionState;
+// Returns the colour resolution (in bits)
+// ... so not quite the inverst of 
+int Light::getColourResolution()
+{
+    return analogWriteResolution(redPin);
+}
+
+/*
+ * Sets the actual lampc colour
+ * R,G,B can take values in the range 0-<colour resolution>. These are the permitted PWM settings 
+ *
+ * Values are clamped if they are outside these ranges
+ */
+COLOUR Light::setColour(uint32_t red, uint32_t green, uint32_t blue)
+{
+    setRed(red);
+    setGreen(green);
+    setBlue(blue);
     
-    currentConnectionState = cloudConnection.updateConnectionStatus();
+    return currentColour;
+}
+
+COLOUR Light::getColour(void)
+{
+    return currentColour;    
+}
+
+COLOUR Light::restoreColour(void)
+{
+    return setColour(savedColour.r, savedColour.g, savedColour.b);    
+}
+
+void Light::setRed(uint32_t red)
+{
+    uint32_t maxColourRange = pow(2,getColourResolution()) - 1;
+    uint32_t colourToSet;
+    int maxFreq = analogWriteMaxFrequency(redPin);
     
-    // Catch the case where we have held down the SETUP button for >5 seconds and forced the core into LISTENING mode
-    if( System.buttonPushed() > 5000 ) {
-        cloudConnection.setCloudRecoveryState(LISTENING);    
+    if( red > maxColourRange ) red = maxColourRange;
+
+    // And further correct for the maximum brightness
+    colourToSet = (red * brightnessLevel) / 100;
+    
+    // Use half the max PWM frequency
+    analogWrite(redPin, colourToSet, maxFreq / 2 );
+
+    currentColour.r = redLevel = red;
+}
+
+void Light::setGreen(uint32_t green)
+{
+    uint32_t maxColourRange = pow(2,getColourResolution()) - 1;
+    uint32_t colourToSet;
+    int maxFreq = analogWriteMaxFrequency(greenPin);
+    
+    // Clamp all the colours to be within allowed ranges
+
+    if( green > maxColourRange ) green = maxColourRange;
+
+    // And further correct for the maximum brightness
+    colourToSet = (green * brightnessLevel) / 100;
+    
+    // Use half the max PWM frequency
+    analogWrite(greenPin, colourToSet, maxFreq / 2 );
+
+    currentColour.g = greenLevel = green;
+}
+
+
+void Light::setBlue(uint32_t blue)
+{
+    uint32_t maxColourRange = pow(2,getColourResolution()) - 1;
+    uint32_t colourToSet;
+    int maxFreq = analogWriteMaxFrequency(bluePin);
+    
+    // Clamp all the colours to be within allowed ranges
+    if( blue > maxColourRange ) blue = maxColourRange;
+    
+    // And further correct for the maximum brightness
+    colourToSet = (blue * brightnessLevel) / 100;
+
+    // Use half the max PWM frequency
+    analogWrite(bluePin, colourToSet, maxFreq / 2 );
+
+    currentColour.b = blueLevel = blue;
+}
+
+COLOUR Light::set8BitColour(uint8_t red, uint8_t green, uint8_t blue)
+{
+    uint32_t maxColourRange = pow(2,getColourResolution()) - 1;
+    
+    
+    uint32_t cRed    = (red * maxColourRange) / 255;
+    uint32_t cGreen  = (green * maxColourRange) / 255;
+    uint32_t cBlue   = (blue * maxColourRange) / 255;
+    
+    return setColour( cRed, cGreen, cBlue);
+}
+
+bool Light::lampControlEnabled(void)
+{
+    return lampControlIsEnabled;
+}
+
+void Light::setExternalLampControl(bool lampControl)
+{
+    lampControlIsEnabled = lampControl;
+}
+
+void Light::setBrightnessLevel(int level)
+{
+    if(level < 1) level = 1;
+    if(level > 100) level = 100;
+    
+    brightnessLevel = powerLevel = level;    
+}
+
+int Light::getBrightnessLevel(void)
+{
+    return brightnessLevel;
+}
+
+/*
+   Return a RGB colour value given a scalar v in the range [vmin,vmax]
+   In this case each colour component ranges from 0 (no contribution) to
+   255 (fully saturated), modifications for other ranges is trivial.
+   The colour is clipped at the end of the scales if v is outside
+   the range [vmin,vmax]
+   
+   This is a standard cold => hot colour gradient from http://paulbourke.net/texture_colour/colourspace/ 
+
+*/
+COLOUR Light::colourRampFromRange(float value, float vmin, float vmax)
+{
+    
+    COLOUR c;  
+    double dv;
+
+    int maxColour = pow(2,getColourResolution()) - 1;
+    c.r = c.g = c.b = maxColour;    // Lamp ON
+    
+    if( debugEnabled) {
+        Serial.printf("----\n");
+        Serial.printf("computing colour - ramp algorithm\n");
+        Serial.printf("Max: %d\n", maxColour);
+        Serial.printf("Value, vMin, vMax %f %f %f\n", value, vmin, vmax);
     }
-    
-    // If we are currently connected, and have been connected for > 10 and < 15 seconds, then
-    // ... allow LED control
-    // ... turn off the lamp to await remote control
-    // ... this is basically normal mode
-    
-    if( currentConnectionState && ( (cloudConnection.mSecSinceLastStateChange() > (CONNECTED_INDICATION_TIME * 1000)) && ( cloudConnection.mSecSinceLastStateChange() < ((CONNECTED_INDICATION_TIME + 5) * 1000) )))
+    if (value < vmin)
+        value = vmin;
+      
+    if (value > vmax)
+        value = vmax;
+      
+    dv = vmax - vmin;
+
+    if (value < (vmin + 0.25 * dv)) {
+        c.r = 0;
+        c.g = (4 * (value - vmin) / dv) * maxColour;
+    } 
+    else if (value < (vmin + 0.5 * dv)) 
     {
-        if( debugEnabled) {
-            Serial.printf("Connected: going to turn on external lamp control\n");
-        }
-        
-        lamp.setExternalLampControl(true);
-        lamp.rapidColourRamp();
-        delay(1000);
-        
-        // Put back the colour which we had set before losing connectivity, if we had one (or off, if we did not)
-        lamp.restoreColour();
-    }
+        c.r = 0;
+        c.b = maxColour + (4 * (vmin + 0.25 * dv - value) / dv) * maxColour;
+    } 
+    else if (value < (vmin + 0.75 * dv)) 
+    {
+        c.r = (4 * (value - vmin - 0.5 * dv) / dv) * maxColour;
+        c.b = 0;
+    } 
     else 
     {
-
-        // If we're not connected, and we have not been connected for > 60 seconds, then we attempt our recovery cycle 
-        if( !currentConnectionState )
-        {
-            if( debugEnabled) {
-                Serial.printf("Not connected ... mSec since change %d\n", cloudConnection.mSecSinceLastStateChange());
-            }
-            
-            // If we've been disconnected for > half the recovery time seconds, turn back on lamp status mirroring
-            if(lamp.lampControlEnabled() && cloudConnection.mSecSinceLastStateChange() > (RECOVERY_CYCLE_PERIOD/2)*1000 )
-            {
-                if( debugEnabled) {
-                    Serial.printf("Mirroring status LED\n");
-                }
-                
-                // Lamp colour indicates the connection status again, to aid reconnection
-                lamp.setExternalLampControl(false);
-            }
-            
-            // Our recovery is 120 seconds of attempting to reconneect, 120 seconds of listening, repeating forever ... 
-            if( cloudConnection.getCloudRecoveryState() == CONNECTING)
-            {
-                if( debugEnabled) {
-                    Serial.printf("In CONNECTING state ..");
-                }
-                
-                if( cloudConnection.mSecSinceLastStateChange() > (RECOVERY_CYCLE_PERIOD*1000) || WiFi.listening() )
-                {
-                    if( debugEnabled) {
-                        Serial.printf("Setting LISTENING Mode\n");
-                    }
-                    
-                    cloudConnection.setCloudRecoveryState(LISTENING);
-                    WiFi.listen();
-                }
-            }
-            else if (cloudConnection.getCloudRecoveryState() == LISTENING)
-            {
-                if( debugEnabled) {
-                    Serial.printf("In LISTENING state ..");
-                }
-                if( cloudConnection.mSecSinceLastStateChange() > (RECOVERY_CYCLE_PERIOD*1000) && WiFi.hasCredentials() )
-                {
-                    if( debugEnabled) {
-                        Serial.printf("Setting CONNECTING state\n");
-                    }
-                    cloudConnection.setCloudRecoveryState(CONNECTING);
-                    WiFi.listen(false);
-                }
-            }
-        }
-
+        c.g = maxColour + (4 * (vmin + 0.75 * dv - value) / dv) * maxColour;
+        c.b = 0;
     }
-    // Wait for a second and check again
-    delay(1000);
-}
 
-
-
-// Mirrors the LED status connection to the lamp, if allowed to do so ... 
-void ledChangeHandler(uint8_t r, uint8_t g, uint8_t b)
-{
-    COLOUR newColour;
+    if( debugEnabled) {
+        Serial.printf("Red: %d\n", c.r);
+        Serial.printf("Green: %d\n", c.g);
+        Serial.printf("Blue: %d\n", c.b);
+        Serial.printf("----------\n");        
+    }
     
-    if( !lamp.lampControlEnabled() ) {
-        newColour = lamp.set8BitColour(r,g,b);
-        
-        redLevel    = newColour.r;
-        greenLevel  = newColour.g;
-        blueLevel   = newColour.b;
+    return(c);
+}
+
+ /*
+ * This is a "visible spectrum" gradient
+ *
+ * Can be used to map an point on an input scale to a colour
+ * Slightly different from the cold->hot colour gradient
+ *
+ * https://msdn.microsoft.com/en-us/library/mt712854.aspx
+  */
+  
+
+COLOUR Light::visibleColourFromRange(float value, float vmin, float vmax)
+{
+    
+    COLOUR c;  
+    double dv;
+    int maxColour = pow(2,getColourResolution()) - 1;
+
+    if( debugEnabled) {
+        Serial.printf("----\n");
+        Serial.printf("computing colour - spectrum algorithm\n");
+        Serial.printf("Max: %d\n", maxColour);
+        Serial.printf("Value, vMin, vMax %f %f %f\n", value, vmin, vmax);
+    }
+    
+    if (value < vmin)
+        value = vmin;
+      
+    if (value > vmax)
+        value = vmax;
+      
+    dv = vmax - vmin;
+
+    if (value < (vmin + 0.25 * dv)) {
+        c.r = maxColour - ((4 * (value - vmin) / dv) * maxColour);
+        c.g = 0;
+        c.b = maxColour;
+    } 
+    else if (value < (vmin + 0.5 * dv)) 
+    {
+        c.r = 0;
+        c.g = (4 * (value - vmin - 0.25 * dv) / dv) * maxColour;
+        c.b = maxColour + (4 * (vmin + 0.25 * dv - value) / dv) * maxColour;
+    } 
+    else if (value < (vmin + 0.75 * dv)) 
+    {
+        c.r = (4 * (value - vmin - 0.5 * dv) / dv) * maxColour;
+        c.g = maxColour;
+        c.b = 0;
+    } 
+    else 
+    {
+        c.r = maxColour;
+        c.g = maxColour + (4 * (vmin + 0.75 * dv - value) / dv) * maxColour;
+        c.b = 0;
+    }
+
+    if( debugEnabled) {
+        Serial.printf("Red: %d\n", c.r);
+        Serial.printf("Green: %d\n", c.g);
+        Serial.printf("Blue: %d\n", c.b);
+        Serial.printf("----------\n");        
+    }
+    
+    return(c);
+}
+
+// Rapidly cycle the Lamp through the colour spectrum: a sort of "hello" message
+// Does this after connecting and before powering down the lamp and waiting for a command
+void Light::rapidColourRamp(void)
+{
+    float value;
+    COLOUR colour;
+    
+    for( value = 0; value < 1024; delay(10), value++)
+    {
+        colour = colourRampFromRange(value,0,1024);
+        setColour(colour.r, colour.g, colour.b);
     }
 }
 
-
-// Reboots the lamp
-void rebootTimeout(void)
+void Light::setRestoreColour(void)
 {
-    System.reset();
+    savedColour = currentColour;    
+}
+
+// Exposed Lamp control command
+int LampControl(String command)
+{
+    int numArgs;
+    int retVal = -1;
+    
+    command.trim();
+    command.toUpperCase();
+    
+    String lampCommand[8];
+    numArgs = splitStringToArray(command, lampCommand);
+    
+    if( debugEnabled) {
+        Serial.printf("Colour command received: ");
+        
+        for( int i=0; i < numArgs; i++) {
+            Serial.printf("%s ",lampCommand[i].c_str());
+        }
+        Serial.printf("\n");
+    }
+    
+    String action = lampCommand[0];
+    
+    // Now just hand off to the handlers
+    // However we have to remembed the colour, so that we can reset it
+    
+    if( action == "SET")
+    {
+        retVal = SetLampColour(lampCommand[1], lampCommand[2], lampCommand[3]);
+        lamp.setRestoreColour();
+    }
+    else if (action == "RAMP")
+    {
+        retVal = SetLampColourFromRamp(lampCommand[1], lampCommand[2], lampCommand[3]);
+        lamp.setRestoreColour();
+    }
+    else if (action == "SPECTRUM")
+    {
+        retVal = SetLampColourFromSpectrum( lampCommand[1], lampCommand[2], lampCommand[3] );
+        lamp.setRestoreColour();
+    }
+    else if (action == "LEVEL")
+    {
+        retVal = SetLampMaximumBrightness(lampCommand[1], lampCommand[2]);
+    }
+    else
+    {
+        if (debugEnabled)
+        {
+            Serial.printf("That is not a valid command. Ignored");
+        }
+    }
+
+
+    return retVal;
+}
+
+int SetLampColour(String arg1, String arg2, String arg3)
+{
+    uint32_t r, g, b;
+    
+    int retval = -1;
+    if( arg1 == "RED")
+    {
+        r = arg2.toInt();
+        lamp.setRed(r);
+        retval = r;
+    }
+    else if (arg1 == "GREEN")
+    {
+        g = arg2.toInt();
+        lamp.setGreen(g);
+        retval = g;
+    }
+    else if (arg1 == "BLUE")
+    {
+        b = arg2.toInt();
+        lamp.setBlue(b);
+        retval = b;
+    }
+    else
+    {
+        // Assume that the three arguments are R, G, B integer values
+        // If the values are not valid, we just get 0 
+        r = arg1.toInt();
+        g = arg2.toInt();
+        b = arg3.toInt();
+        lamp.setColour(r,g,b);
+        retval = 0;
+    }
+
+    return retval;    
+}
+
+// Set the maximum brightness level (for Alexa dimming)
+int SetLampMaximumBrightness(String arg1, String arg2)
+{
+    int retval = 0;
+    int level, dim;
+    
+    if( arg1 == "SET")
+    {
+        level = arg2.toInt();
+        lamp.setBrightnessLevel(level);
+    }
+    else if (arg1 == "DIM")
+    {
+        dim = arg2.toInt();
+        level = lamp.getBrightnessLevel();
+        level += dim;
+        lamp.setBrightnessLevel(level);
+    }
+    else
+    {
+        // Just assume it is a straight set command
+        level = arg1.toInt();
+        lamp.setBrightnessLevel(level);        
+    }
+    
+    // Reset the colour based on this dimming level
+    lamp.restoreColour();
+    
+    return retval;
+    
+}
+// Just use integers for colour values and range passed in ... 
+int SetLampColourFromRamp(String arg1, String arg2, String arg3)
+{
+    float v, vmin, vmax;
+    
+    v = (float)arg1.toInt();
+    vmin = (float)arg2.toInt();
+    vmax = (float)arg3.toInt();
+    
+    COLOUR col = lamp.colourRampFromRange(v, vmin, vmax);
+    
+    lamp.setColour(col.r, col.g, col.b);
+    
+    return 0;
+    
 }
 
 
+int SetLampColourFromSpectrum(String arg1, String arg2, String arg3)
+{
+    float v, vmin, vmax;
+    
+    v = (float)arg1.toInt();
+    vmin = (float)arg2.toInt();
+    vmax = (float)arg3.toInt();
+    
+    COLOUR col = lamp.visibleColourFromRange(v, vmin, vmax);
+    
+    lamp.setColour(col.r, col.g, col.b);
+    
+    return 0;    
+}

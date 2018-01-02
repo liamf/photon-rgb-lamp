@@ -38,6 +38,7 @@ extern int redLevel;
 extern int greenLevel;
 extern int blueLevel;
 extern int bitsPerPixel;
+extern int powerLevel;
 
 typedef struct 
 {
@@ -51,6 +52,7 @@ int LampControl(String command);
 int PulseLamp(String command);
 
 int SetLampColour(String arg1, String arg2, String arg3);
+int SetLampMaximumBrightness(String arg1, String arg2);
 int SetLampColourFromRamp(String arg1, String arg2, String arg3);
 int SetLampColourFromSpectrum(String arg1, String arg2, String arg3);
 

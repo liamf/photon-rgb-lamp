@@ -1,4 +1,4 @@
-/*
+*
  * This app controls the "ambient orb" RGB light clone and exposes a few simple control points to the particle cloud
  *
  * Liam Friel
@@ -27,208 +27,470 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
  
+#include "light.h"
 #include "admin.h"
+#include "math.h"
+#include "application.h"
 
-bool debugEnabled = false;
+// Easy access for the current colour values. Perhaps these can be classs variables and exposed to the Cloud?
 
-// Network control command
-int AdminHandler(String command)
+int redLevel;
+int greenLevel;
+int blueLevel;
+int bitsPerPixel;
+int powerLevel;
+
+
+Light::Light(int rPin, int gPin, int bPin ) : redPin(rPin), greenPin(gPin), bluePin(bPin), brightnessLevel(100)
+{
+    lampControlIsEnabled = false;
+    bitsPerPixel = 8;
+    
+    redLevel = greenLevel = blueLevel = 0;
+    powerLevel = 100;
+    
+    savedColour.r = savedColour.g = savedColour.b = 0;
+};
+
+
+// Sets the colour resolution of the PWM pins (and set them to be outputs, just in case)
+void Light::setColourResolution(int bits)
+{
+    pinMode(redPin, OUTPUT);
+    pinMode(greenPin, OUTPUT);
+    pinMode(bluePin, OUTPUT);
+    
+    analogWriteResolution(redPin, bits);    
+    analogWriteResolution(greenPin, bits);  
+    analogWriteResolution(bluePin, bits);   
+    
+    bitsPerPixel = bits;
+}
+
+// Returns the colour resolution (in bits)
+// ... so not quite the inverst of 
+int Light::getColourResolution()
+{
+    return analogWriteResolution(redPin);
+}
+
+/*
+ * Sets the actual lampc colour
+ * R,G,B can take values in the range 0-<colour resolution>. These are the permitted PWM settings 
+ *
+ * Values are clamped if they are outside these ranges
+ */
+COLOUR Light::setColour(uint32_t red, uint32_t green, uint32_t blue)
+{
+    setRed(red);
+    setGreen(green);
+    setBlue(blue);
+    
+    return currentColour;
+}
+
+COLOUR Light::getColour(void)
+{
+    return currentColour;    
+}
+
+COLOUR Light::restoreColour(void)
+{
+    return setColour(savedColour.r, savedColour.g, savedColour.b);    
+}
+
+void Light::setRed(uint32_t red)
+{
+    uint32_t maxColourRange = pow(2,getColourResolution()) - 1;
+    uint32_t colourToSet;
+    int maxFreq = analogWriteMaxFrequency(redPin);
+    
+    if( red > maxColourRange ) red = maxColourRange;
+
+    // And further correct for the maximum brightness
+    colourToSet = (red * brightnessLevel) / 100;
+    
+    // Use half the max PWM frequency
+    analogWrite(redPin, colourToSet, maxFreq / 2 );
+
+    currentColour.r = redLevel = red;
+}
+
+void Light::setGreen(uint32_t green)
+{
+    uint32_t maxColourRange = pow(2,getColourResolution()) - 1;
+    uint32_t colourToSet;
+    int maxFreq = analogWriteMaxFrequency(greenPin);
+    
+    // Clamp all the colours to be within allowed ranges
+
+    if( green > maxColourRange ) green = maxColourRange;
+
+    // And further correct for the maximum brightness
+    colourToSet = (green * brightnessLevel) / 100;
+    
+    // Use half the max PWM frequency
+    analogWrite(greenPin, colourToSet, maxFreq / 2 );
+
+    currentColour.g = greenLevel = green;
+}
+
+
+void Light::setBlue(uint32_t blue)
+{
+    uint32_t maxColourRange = pow(2,getColourResolution()) - 1;
+    uint32_t colourToSet;
+    int maxFreq = analogWriteMaxFrequency(bluePin);
+    
+    // Clamp all the colours to be within allowed ranges
+    if( blue > maxColourRange ) blue = maxColourRange;
+    
+    // And further correct for the maximum brightness
+    colourToSet = (blue * brightnessLevel) / 100;
+
+    // Use half the max PWM frequency
+    analogWrite(bluePin, colourToSet, maxFreq / 2 );
+
+    currentColour.b = blueLevel = blue;
+}
+
+COLOUR Light::set8BitColour(uint8_t red, uint8_t green, uint8_t blue)
+{
+    uint32_t maxColourRange = pow(2,getColourResolution()) - 1;
+    
+    
+    uint32_t cRed    = (red * maxColourRange) / 255;
+    uint32_t cGreen  = (green * maxColourRange) / 255;
+    uint32_t cBlue   = (blue * maxColourRange) / 255;
+    
+    return setColour( cRed, cGreen, cBlue);
+}
+
+bool Light::lampControlEnabled(void)
+{
+    return lampControlIsEnabled;
+}
+
+void Light::setExternalLampControl(bool lampControl)
+{
+    lampControlIsEnabled = lampControl;
+}
+
+void Light::setBrightnessLevel(int level)
+{
+    if(level < 1) level = 1;
+    if(level > 100) level = 100;
+    
+    brightnessLevel = powerLevel = level;    
+}
+
+int Light::getBrightnessLevel(void)
+{
+    return brightnessLevel;
+}
+
+/*
+   Return a RGB colour value given a scalar v in the range [vmin,vmax]
+   In this case each colour component ranges from 0 (no contribution) to
+   255 (fully saturated), modifications for other ranges is trivial.
+   The colour is clipped at the end of the scales if v is outside
+   the range [vmin,vmax]
+   
+   This is a standard cold => hot colour gradient from http://paulbourke.net/texture_colour/colourspace/ 
+
+*/
+COLOUR Light::colourRampFromRange(float value, float vmin, float vmax)
+{
+    
+    COLOUR c;  
+    double dv;
+
+    int maxColour = pow(2,getColourResolution()) - 1;
+    c.r = c.g = c.b = maxColour;    // Lamp ON
+    
+    if( debugEnabled) {
+        Serial.printf("----\n");
+        Serial.printf("computing colour - ramp algorithm\n");
+        Serial.printf("Max: %d\n", maxColour);
+        Serial.printf("Value, vMin, vMax %f %f %f\n", value, vmin, vmax);
+    }
+    if (value < vmin)
+        value = vmin;
+      
+    if (value > vmax)
+        value = vmax;
+      
+    dv = vmax - vmin;
+
+    if (value < (vmin + 0.25 * dv)) {
+        c.r = 0;
+        c.g = (4 * (value - vmin) / dv) * maxColour;
+    } 
+    else if (value < (vmin + 0.5 * dv)) 
+    {
+        c.r = 0;
+        c.b = maxColour + (4 * (vmin + 0.25 * dv - value) / dv) * maxColour;
+    } 
+    else if (value < (vmin + 0.75 * dv)) 
+    {
+        c.r = (4 * (value - vmin - 0.5 * dv) / dv) * maxColour;
+        c.b = 0;
+    } 
+    else 
+    {
+        c.g = maxColour + (4 * (vmin + 0.75 * dv - value) / dv) * maxColour;
+        c.b = 0;
+    }
+
+    if( debugEnabled) {
+        Serial.printf("Red: %d\n", c.r);
+        Serial.printf("Green: %d\n", c.g);
+        Serial.printf("Blue: %d\n", c.b);
+        Serial.printf("----------\n");        
+    }
+    
+    return(c);
+}
+
+ /*
+ * This is a "visible spectrum" gradient
+ *
+ * Can be used to map an point on an input scale to a colour
+ * Slightly different from the cold->hot colour gradient
+ *
+ * https://msdn.microsoft.com/en-us/library/mt712854.aspx
+  */
+  
+
+COLOUR Light::visibleColourFromRange(float value, float vmin, float vmax)
+{
+    
+    COLOUR c;  
+    double dv;
+    int maxColour = pow(2,getColourResolution()) - 1;
+
+    if( debugEnabled) {
+        Serial.printf("----\n");
+        Serial.printf("computing colour - spectrum algorithm\n");
+        Serial.printf("Max: %d\n", maxColour);
+        Serial.printf("Value, vMin, vMax %f %f %f\n", value, vmin, vmax);
+    }
+    
+    if (value < vmin)
+        value = vmin;
+      
+    if (value > vmax)
+        value = vmax;
+      
+    dv = vmax - vmin;
+
+    if (value < (vmin + 0.25 * dv)) {
+        c.r = maxColour - ((4 * (value - vmin) / dv) * maxColour);
+        c.g = 0;
+        c.b = maxColour;
+    } 
+    else if (value < (vmin + 0.5 * dv)) 
+    {
+        c.r = 0;
+        c.g = (4 * (value - vmin - 0.25 * dv) / dv) * maxColour;
+        c.b = maxColour + (4 * (vmin + 0.25 * dv - value) / dv) * maxColour;
+    } 
+    else if (value < (vmin + 0.75 * dv)) 
+    {
+        c.r = (4 * (value - vmin - 0.5 * dv) / dv) * maxColour;
+        c.g = maxColour;
+        c.b = 0;
+    } 
+    else 
+    {
+        c.r = maxColour;
+        c.g = maxColour + (4 * (vmin + 0.75 * dv - value) / dv) * maxColour;
+        c.b = 0;
+    }
+
+    if( debugEnabled) {
+        Serial.printf("Red: %d\n", c.r);
+        Serial.printf("Green: %d\n", c.g);
+        Serial.printf("Blue: %d\n", c.b);
+        Serial.printf("----------\n");        
+    }
+    
+    return(c);
+}
+
+// Rapidly cycle the Lamp through the colour spectrum: a sort of "hello" message
+// Does this after connecting and before powering down the lamp and waiting for a command
+void Light::rapidColourRamp(void)
+{
+    float value;
+    COLOUR colour;
+    
+    for( value = 0; value < 1024; delay(10), value++)
+    {
+        colour = colourRampFromRange(value,0,1024);
+        setColour(colour.r, colour.g, colour.b);
+    }
+}
+
+void Light::setRestoreColour(void)
+{
+    savedColour = currentColour;    
+}
+
+// Exposed Lamp control command
+int LampControl(String command)
 {
     int numArgs;
+    int retVal = -1;
     
     command.trim();
     command.toUpperCase();
     
-    String adminCommand[8];
-    numArgs = splitStringToArray(command, adminCommand);
+    String lampCommand[8];
+    numArgs = splitStringToArray(command, lampCommand);
     
     if( debugEnabled) {
-        Serial.printf("Admin command received: ");
+        Serial.printf("Colour command received: ");
         
         for( int i=0; i < numArgs; i++) {
-            Serial.printf("%s ",adminCommand[i].c_str());
+            Serial.printf("%s ",lampCommand[i].c_str());
         }
         Serial.printf("\n");
     }
     
-    String action = adminCommand[0];
+    String action = lampCommand[0];
     
     // Now just hand off to the handlers
-    if( action == "CLEAR")
-    {
-        return ForgetNetworkConfiguration();
-    }
-    else if (action == "LIST")
-    {
-        return PrintKnownNetworks();
-    }
-    else if (action == "ADD")
-    {
-        return AddNetworkCredentials( adminCommand );
-    }
-    else if (action == "SERIAL")
-    {
-        return EnableUSBSerial(adminCommand[1]);
-    }
-    else if (action == "DEBUG")
-    {
-        return EnableDebug(adminCommand[1]);
-    }
-    else if (action == "LED")
-    {
-        return EnableLEDControl(adminCommand[1]);
-    }
+    // However we have to remembed the colour, so that we can reset it
     
-    return -1;
-}
-
-// Handle adding network credentials via API
-int AddNetworkCredentials( String *command )
-{
-    int retval = -1;
-    if( command[0] == "ADD")
+    if( action == "SET")
     {
-        retval = 0;
-        if( command[1] == "UNSEC")
+        retVal = SetLampColour(lampCommand[1], lampCommand[2], lampCommand[3]);
+        lamp.setRestoreColour();
+    }
+    else if (action == "RAMP")
+    {
+        retVal = SetLampColourFromRamp(lampCommand[1], lampCommand[2], lampCommand[3]);
+        lamp.setRestoreColour();
+    }
+    else if (action == "SPECTRUM")
+    {
+        retVal = SetLampColourFromSpectrum( lampCommand[1], lampCommand[2], lampCommand[3] );
+        lamp.setRestoreColour();
+    }
+    else if (action == "LEVEL")
+    {
+        retVal = SetLampMaximumBrightness(lampCommand[1], lampCommand[2]);
+    }
+    else
+    {
+        if (debugEnabled)
         {
-            WiFi.setCredentials(command[2]);    
-        }
-        else if (command[1] == "WEP")
-        {
-            WiFi.setCredentials( command[2], command[3], WEP);
-        }
-        else if (command[1] == "WPA2")
-        {
-            // Adding a WPA2 network. We have the option of specifying the cypher
-            if( command[4] == "AES")
-            {
-                WiFi.setCredentials(command[2], command[3], WLAN_CIPHER_AES);
-            }
-            else if (command[4] == "TKIP")
-            {
-                WiFi.setCredentials(command[2], command[3], WLAN_CIPHER_TKIP);    
-            }
-            else if (command[4] == "AES_TKIP")
-            {
-                WiFi.setCredentials(command[2], command[3], WLAN_CIPHER_AES_TKIP);
-            }
-            else
-            {
-                WiFi.setCredentials(command[2], command[3]);
-            }
+            Serial.printf("That is not a valid command. Ignored");
         }
     }
+
+
+    return retVal;
+}
+
+int SetLampColour(String arg1, String arg2, String arg3)
+{
+    uint32_t r, g, b;
     
-    return retval;
-}
-
-// Can be handy for troubleshooting ... 
-int PrintKnownNetworks(void)
-{
-    WiFiAccessPoint ap[5];
-    int found = WiFi.getCredentials(ap, 5);
-    for (int i = 0; i < found; i++) 
-    {
-        Serial.print("ssid: ");
-        Serial.println(ap[i].ssid);
-        // security is one of WLAN_SEC_UNSEC, WLAN_SEC_WEP, WLAN_SEC_WPA, WLAN_SEC_WPA2
-        Serial.print("security: ");
-        Serial.println(ap[i].security);
-        // cipher is one of WLAN_CIPHER_AES, WLAN_CIPHER_TKIP
-        Serial.print("cipher: ");
-        Serial.println(ap[i].cipher);
-    }
-    
-    return found;
-}
-
-// Clears all credentials. Does not immediately put core offline, but next restart will put it into listening mode
-// until new credentials are set via SoftAP or USB interface
-int ForgetNetworkConfiguration(void)
-{
-    WiFiAccessPoint ap[5];
-    int found = WiFi.getCredentials(ap, 5);
-    WiFi.clearCredentials();
-    return found;
-}
-
-// Turn on/off serial. Useful for debug (if you have a USB cable connected ...)
-int EnableUSBSerial(String command)
-{
     int retval = -1;
-    
-    if( command == "ON")
+    if( arg1 == "RED")
     {
-        Serial.begin();
+        r = arg2.toInt();
+        lamp.setRed(r);
+        retval = r;
+    }
+    else if (arg1 == "GREEN")
+    {
+        g = arg2.toInt();
+        lamp.setGreen(g);
+        retval = g;
+    }
+    else if (arg1 == "BLUE")
+    {
+        b = arg2.toInt();
+        lamp.setBlue(b);
+        retval = b;
+    }
+    else
+    {
+        // Assume that the three arguments are R, G, B integer values
+        // If the values are not valid, we just get 0 
+        r = arg1.toInt();
+        g = arg2.toInt();
+        b = arg3.toInt();
+        lamp.setColour(r,g,b);
         retval = 0;
     }
-    else if( command == "OFF")
-    {
-        Serial.end();
-        retval = 0;
-    }
-    
-    return retval;
+
+    return retval;    
 }
 
-// Printouts
-int EnableDebug(String command)
+// Set the maximum brightness level (for Alexa dimming)
+int SetLampMaximumBrightness(String arg1, String arg2)
 {
-    int retval = -1;
+    int retval = 0;
+    int level, dim;
     
-    if( command == "ON")
+    if( arg1 == "SET")
     {
-        debugEnabled = true;
-        Serial.printf("Debug ON\n");
-        retval = 0;
+        level = arg2.toInt();
+        lamp.setBrightnessLevel(level);
     }
-    else if( command == "OFF")
+    else if (arg1 == "DIM")
     {
-        debugEnabled = false;
-        Serial.printf("Debug OFF\n");
-        retval = 0;
+        dim = arg2.toInt();
+        level = lamp.getBrightnessLevel();
+        level += dim;
+        lamp.setBrightnessLevel(level);
     }
+    else
+    {
+        // Just assume it is a straight set command
+        level = arg1.toInt();
+        lamp.setBrightnessLevel(level);        
+    }
+    
+    // Reset the colour based on this dimming level
+    lamp.restoreColour();
     
     return retval;
+    
+}
+// Just use integers for colour values and range passed in ... 
+int SetLampColourFromRamp(String arg1, String arg2, String arg3)
+{
+    float v, vmin, vmax;
+    
+    v = (float)arg1.toInt();
+    vmin = (float)arg2.toInt();
+    vmax = (float)arg3.toInt();
+    
+    COLOUR col = lamp.colourRampFromRange(v, vmin, vmax);
+    
+    lamp.setColour(col.r, col.g, col.b);
+    
+    return 0;
+    
 }
 
-int EnableLEDControl(String command)
+
+int SetLampColourFromSpectrum(String arg1, String arg2, String arg3)
 {
-    int retval = -1;
+    float v, vmin, vmax;
     
-    if(command == "MANUAL")
-    {
-        lamp.setExternalLampControl(true);
-        retval = 0;
-    }
-    else if( command == "AUTO")
-    {
-        lamp.setExternalLampControl(false);
-        retval = 1;
-    }
+    v = (float)arg1.toInt();
+    vmin = (float)arg2.toInt();
+    vmax = (float)arg3.toInt();
     
-    return retval;
-}
-
-// Split up a string into words (== arguments), assumed separated by spaces
-int splitStringToArray(String arguments, String *target)
-{
-    int numArgs = 0;
-    int beginIdx = 0;
-    int idx = arguments.indexOf(" ");
-
-    while (idx != -1) {
-	    String arg = arguments.substring(beginIdx, idx);
-	    target[numArgs] = arg;
-
-	    beginIdx = idx + 1;
-	    idx = arguments.indexOf(" ", beginIdx);
-	    ++numArgs;
-    }
-
-    // Single or last parameter
-    String lastArg = arguments.substring(beginIdx);
-    target[numArgs] = lastArg;
+    COLOUR col = lamp.visibleColourFromRange(v, vmin, vmax);
     
-    return numArgs + 1;
+    lamp.setColour(col.r, col.g, col.b);
+    
+    return 0;    
 }
